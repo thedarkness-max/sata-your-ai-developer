@@ -48,8 +48,8 @@ export default function ChatPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  const createConversation = async (title: string) => {
-    if (!user) return null;
+  const createConversation = async (title: string): Promise<string | undefined> => {
+    if (!user) return undefined;
     const { data, error } = await supabase.from("conversations").insert({ user_id: user.id, title }).select().single();
     if (error) throw error;
     return data.id as string;
