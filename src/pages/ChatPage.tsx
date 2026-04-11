@@ -7,7 +7,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Menu, Plus, Send, Loader2, Zap } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import MessageBubble from "@/components/MessageBubble";
-import MarkdownRenderer from "@/components/MarkdownRenderer";
 
 type Msg = { id?: string; role: "user" | "assistant"; content: string };
 
@@ -25,7 +24,7 @@ export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load profile
+  // Load profile (only if logged in)
   useEffect(() => {
     if (!user) return;
     supabase.from("profiles").select("*").eq("user_id", user.id).single().then(({ data }) => {
@@ -37,7 +36,7 @@ export default function ChatPage() {
     });
   }, [user]);
 
-  // Load conversation messages
+  // Load conversation messages (only if logged in)
   useEffect(() => {
     if (!conversationId || !user) { setMessages([]); return; }
     supabase.from("messages").select("*").eq("conversation_id", conversationId).order("created_at").then(({ data }) => {
@@ -49,24 +48,27 @@ export default function ChatPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  const createConversation = async (title: string) => {
-    const { data, error } = await supabase.from("conversations").insert({ user_id: user!.id, title }).select().single();
+  const createConversation = async (title: string): Promise<string | undefined> => {
+    if (!user) return undefined;
+    const { data, error } = await supabase.from("conversations").insert({ user_id: user.id, title }).select().single();
     if (error) throw error;
     return data.id as string;
   };
 
   const saveMessage = async (convId: string, role: string, content: string) => {
+    if (!user) return;
     await supabase.from("messages").insert({ conversation_id: convId, role, content });
   };
 
   const updateConversationTitle = async (convId: string, firstMsg: string) => {
+    if (!user) return;
     const title = firstMsg.slice(0, 60) + (firstMsg.length > 60 ? "..." : "");
     await supabase.from("conversations").update({ title }).eq("id", convId);
   };
 
   const sendMessage = useCallback(async () => {
     const text = input.trim();
-    if (!text || isStreaming || !user) return;
+    if (!text || isStreaming) return;
     setInput("");
     setIsStreaming(true);
 
@@ -75,18 +77,23 @@ export default function ChatPage() {
     setMessages(allMessages);
 
     try {
-      let convId = conversationId;
-      if (!convId) {
-        convId = await createConversation(text.slice(0, 60));
-        navigate(`/chat/${convId}`, { replace: true });
-      }
-      await saveMessage(convId, "user", text);
-      if (allMessages.filter(m => m.role === "user").length === 1) {
-        await updateConversationTitle(convId, text);
+      let convId: string | undefined = conversationId;
+      
+      // Only persist to DB if logged in
+      if (user) {
+        if (!convId) {
+          convId = await createConversation(text.slice(0, 60));
+          if (convId) navigate(`/chat/${convId}`, { replace: true });
+        }
+        if (convId) {
+          await saveMessage(convId, "user", text);
+          if (allMessages.filter(m => m.role === "user").length === 1) {
+            await updateConversationTitle(convId, text);
+          }
+        }
       }
 
-      // Build system prompt with nickname
-      const systemContent = `Você é Sata GOD, uma IA avançada, inteligente e carismática. ${nickname ? `O usuário se chama "${nickname}". Use o nome dele naturalmente nas respostas de forma amigável e descontraída.` : ""} ${aiMode === "advanced" ? "Responda de forma detalhada e técnica quando apropriado." : "Mantenha respostas concisas e diretas."} ${!longResponses ? "Seja breve nas respostas." : ""} Responda sempre em português brasileiro.`;
+      const systemContent = `Você é Sata GOD, uma IA avançada, inteligente e carismática. ${nickname ? `O usuário se chama "${nickname}". Use o nome dele naturalmente nas respostas.` : ""} ${aiMode === "advanced" ? "Responda de forma detalhada e técnica quando apropriado." : "Mantenha respostas concisas e diretas."} ${!longResponses ? "Seja breve nas respostas." : ""} Responda sempre em português brasileiro.`;
 
       const apiMessages = [
         { role: "system", content: systemContent },
@@ -139,7 +146,7 @@ export default function ChatPage() {
         }
       }
 
-      if (assistantContent && convId) {
+      if (assistantContent && convId && user) {
         await saveMessage(convId, "assistant", assistantContent);
       }
     } catch (err: any) {
@@ -160,7 +167,6 @@ export default function ChatPage() {
       </AnimatePresence>
 
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
         <header className="h-14 flex items-center px-4 border-b border-border shrink-0">
           <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg hover:bg-muted transition-colors">
             <Menu className="w-5 h-5 text-foreground" />
@@ -174,7 +180,6 @@ export default function ChatPage() {
           </button>
         </header>
 
-        {/* Messages */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6">
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-center">
@@ -183,6 +188,11 @@ export default function ChatPage() {
                 {nickname ? `E aí, ${nickname} 😏` : "Sata GOD"}
               </h2>
               <p className="text-muted-foreground text-sm max-w-sm">Como posso te ajudar hoje?</p>
+              {!user && (
+                <button onClick={() => navigate("/auth")} className="mt-4 text-xs text-primary hover:underline">
+                  Faça login para salvar suas conversas
+                </button>
+              )}
             </div>
           )}
           <div className="max-w-3xl mx-auto space-y-4">
@@ -197,7 +207,6 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Input */}
         <div className="p-4 border-t border-border shrink-0">
           <div className="max-w-3xl mx-auto flex gap-2">
             <textarea
