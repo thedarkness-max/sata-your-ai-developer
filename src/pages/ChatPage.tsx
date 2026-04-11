@@ -77,7 +77,7 @@ export default function ChatPage() {
     setMessages(allMessages);
 
     try {
-      let convId = conversationId;
+      let convId: string | undefined = conversationId;
       
       // Only persist to DB if logged in
       if (user) {
